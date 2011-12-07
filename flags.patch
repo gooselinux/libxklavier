@@ -1,0 +1,12 @@
+diff -up libxklavier-4.0/libxklavier/xkl_engine.h.flags libxklavier-4.0/libxklavier/xkl_engine.h
+--- libxklavier-4.0/libxklavier/xkl_engine.h.flags	2009-07-09 14:44:22.219289759 -0400
++++ libxklavier-4.0/libxklavier/xkl_engine.h	2009-07-09 14:44:32.981284927 -0400
+@@ -59,7 +59,7 @@ extern "C" {
+  *                                   xkl_start_listen(engine,XKLL_MANAGE_LAYOUTS);
+  *   @XKLF_DEVICE_DISCOVERY: Backend supports device discovery, can notify
+  */
+-	typedef enum {
++	typedef enum { /*< flags >*/
+ 		XKLF_CAN_TOGGLE_INDICATORS = 0x01,
+ 		XKLF_CAN_OUTPUT_CONFIG_AS_ASCII = 0x02,
+ 		XKLF_CAN_OUTPUT_CONFIG_AS_BINARY = 0x04,

@@ -1,0 +1,437 @@
+? xinput-fixes.patch
+Index: libxklavier/xklavier_evt.c
+===================================================================
+RCS file: /cvs/xklavier/libxklavier/libxklavier/xklavier_evt.c,v
+retrieving revision 1.26
+retrieving revision 1.29
+diff -u -r1.26 -r1.29
+--- libxklavier/xklavier_evt.c	24 Apr 2009 22:10:19 -0000	1.26
++++ libxklavier/xklavier_evt.c	30 Sep 2009 09:49:57 -0000	1.29
+@@ -50,7 +50,8 @@
+ 			break;
+ 		case CreateNotify:
+ 			xkl_engine_process_create_window_evt(engine,
+-							     &xev->xcreatewindow);
++							     &xev->
++							     xcreatewindow);
+ 			break;
+ 		case DestroyNotify:
+ 			xkl_debug(150,
+@@ -100,6 +101,8 @@
+ 				XFocusChangeEvent * fev)
+ {
+ 	Window win;
++	Window prev_toplevel_win =
++	    xkl_engine_priv(engine, curr_toplvl_win);
+ 	Window toplevel_win;
+ 	XklState selected_window_state;
+ 
+@@ -135,36 +138,51 @@
+ 
+ 	if (xkl_engine_get_toplevel_window_state
+ 	    (engine, toplevel_win, &selected_window_state)) {
+-		if (xkl_engine_priv(engine, curr_toplvl_win) !=
+-		    toplevel_win) {
+-			gboolean old_win_transparent, new_win_transparent;
+-			XklState tmp_state;
+-
+-			old_win_transparent =
+-			    xkl_engine_is_toplevel_window_transparent
+-			    (engine,
+-			     xkl_engine_priv(engine, curr_toplvl_win));
+-			if (old_win_transparent)
+-				xkl_debug(150,
+-					  "Leaving transparent window\n");
++		if (prev_toplevel_win != toplevel_win) {
++			gboolean new_win_transparent;
++			Window parent = (Window) NULL, root =
++			    (Window) NULL, *children = NULL;
++			guint nchildren = 0;
+ 
+ 			/*
+-			 * Reload the current state from the current window. 
+-			 * Do not do it for transparent window - we keep the state from 
+-			 * the _previous_ window.
++			 * If previous focused window exists - handle transparency and state
++			 * (optional)
+ 			 */
+-			if (!old_win_transparent &&
+-			    xkl_engine_get_toplevel_window_state(engine,
+-								 xkl_engine_priv
+-								 (engine,
+-								  curr_toplvl_win),
+-								 &tmp_state))
+-			{
+-				xkl_engine_update_current_state(engine,
+-								tmp_state.group,
+-								tmp_state.indicators,
+-								"Loading current (previous) state from the current (previous) window");
+-			}
++			if (xkl_engine_query_tree
++			    (engine, prev_toplevel_win, &root, &parent,
++			     &children, &nchildren) == Success) {
++				XklState tmp_state;
++				gboolean old_win_transparent =
++				    xkl_engine_is_toplevel_window_transparent
++				    (engine, prev_toplevel_win);
++
++				if (children != NULL)
++					XFree(children);
++
++				if (old_win_transparent)
++					xkl_debug(150,
++						  "Leaving transparent window\n");
++				/*
++				 * Reload the current state from the current window. 
++				 * Do not do it for transparent window - we keep the state from 
++				 * the _previous_ window.
++				 */
++				if (!old_win_transparent
++				    &&
++				    xkl_engine_get_toplevel_window_state
++				    (engine, prev_toplevel_win,
++				     &tmp_state)) {
++					xkl_engine_update_current_state
++					    (engine, tmp_state.group,
++					     tmp_state.indicators,
++					     "Loading current (previous) state from the current (previous) window");
++				}
++			} else
++				xkl_debug(150,
++					  "Current (previous) window "
++					  WINID_FORMAT
++					  " does not exist any more, so transparency/state are not analyzed\n",
++					  prev_toplevel_win);
+ 
+ 			xkl_engine_priv(engine, curr_toplvl_win) =
+ 			    toplevel_win;
+@@ -216,8 +234,10 @@
+ 							  "Restoring the group from %d to %d after gaining focus\n",
+ 							  xkl_engine_priv
+ 							  (engine,
+-							   curr_state).group,
+-							  selected_window_state.group);
++							   curr_state).
++							  group,
++							  selected_window_state.
++							  group);
+ 						/*
+ 						 *  For fast mouse movements - the state is probably not updated yet
+ 						 *  (because of the group change notification being late).
+@@ -225,17 +245,21 @@
+ 						 */
+ 						xkl_engine_update_current_state
+ 						    (engine,
+-						     selected_window_state.group,
+-						     selected_window_state.indicators,
++						     selected_window_state.
++						     group,
++						     selected_window_state.
++						     indicators,
+ 						     "Enforcing fast update of the current state");
+ 						xkl_engine_lock_group
+ 						    (engine,
+-						     selected_window_state.group);
++						     selected_window_state.
++						     group);
+ 					} else {
+ 						xkl_debug(150,
+ 							  "Both old and new focused window "
+ 							  "have group %d so no point restoring it\n",
+-							  selected_window_state.group);
++							  selected_window_state.
++							  group);
+ 						xkl_engine_one_switch_to_secondary_group_performed
+ 						    (engine);
+ 					}
+@@ -249,8 +273,10 @@
+ 					xkl_debug(150,
+ 						  "Restoring the indicators from %X to %X after gaining focus\n",
+ 						  xkl_engine_priv(engine,
+-								  curr_state).indicators,
+-						  selected_window_state.indicators);
++								  curr_state).
++						  indicators,
++						  selected_window_state.
++						  indicators);
+ 					xkl_engine_ensure_vtable_inited
+ 					    (engine);
+ 					xkl_engine_vcall(engine,
+@@ -261,12 +287,14 @@
+ 					xkl_debug(150,
+ 						  "Not restoring the indicators %X after gaining focus: indicator handling is not enabled\n",
+ 						  xkl_engine_priv(engine,
+-								  curr_state).indicators);
++								  curr_state).
++						  indicators);
+ 			} else
+ 				xkl_debug(150,
+ 					  "Not restoring the group %d after gaining focus: global layout (xor transparent window)\n",
+ 					  xkl_engine_priv(engine,
+-							  curr_state).group);
++							  curr_state).
++					  group);
+ 		} else
+ 			xkl_debug(150,
+ 				  "Same app window - just do nothing\n");
+@@ -392,11 +420,13 @@
+ 					  "Something (%d) happened to WM_STATE of window 0x%x\n",
+ 					  pev->state, pev->window);
+ 				xkl_engine_select_input_merging(engine,
+-								pev->window,
++								pev->
++								window,
+ 								PropertyChangeMask);
+ 				if (has_xkl_state) {
+ 					xkl_engine_delete_state(engine,
+-								pev->window);
++								pev->
++								window);
+ 				}
+ 			}
+ 		}		/* XKLL_MANAGE_WINDOW_STATES */
+@@ -475,8 +505,9 @@
+ 		xkl_engine_priv(engine, last_error_code) = evt->error_code;
+ 
+ 	switch (evt->error_code) {
+-	case BadWindow:
+ 	case BadAccess:
++	case BadDrawable:
++	case BadWindow:
+ 		{
+ 			XGetErrorText(evt->display, evt->error_code, buf,
+ 				      sizeof(buf));
+@@ -491,6 +522,22 @@
+ 			break;
+ 		}
+ 	default:
++		if (engine != NULL
++		    && xkl_engine_priv(engine, process_x_error)) {
++			if (xkl_engine_priv(engine, process_x_error)
++			    (engine, evt)) {
++				xkl_debug(200,
++					  "X ERROR processed by the engine: %p, "
++					  WINID_FORMAT ", %d [%s], "
++					  "X11 request: %d, minor code: %d\n",
++					  dpy,
++					  (unsigned long) evt->resourceid,
++					  (int) evt->error_code, buf,
++					  (int) evt->request_code,
++					  (int) evt->minor_code);
++				break;
++			}
++		}
+ 		xkl_debug(200,
+ 			  "Unexpected by libxklavier X ERROR: %p, "
+ 			  WINID_FORMAT ", %d [%s], "
+Index: libxklavier/xklavier_evt_xkb.c
+===================================================================
+RCS file: /cvs/xklavier/libxklavier/libxklavier/xklavier_evt_xkb.c,v
+retrieving revision 1.11
+retrieving revision 1.12
+diff -u -r1.11 -r1.12
+--- libxklavier/xklavier_evt_xkb.c	17 Nov 2008 00:19:27 -0000	1.11
++++ libxklavier/xklavier_evt_xkb.c	30 Sep 2009 09:49:57 -0000	1.12
+@@ -162,6 +162,21 @@
+ #endif
+ }
+ 
++/*
++ * XKB error handler
++ */
++gint
++xkl_xkb_process_x_error(XklEngine * engine, XErrorEvent * xerev)
++{
++#ifdef HAVE_XINPUT
++	/* Ignore XInput errors */
++	if (xerev->error_code == xkl_engine_backend(engine, XklXkb, xi_error_code))
++		return 1;
++#endif
++
++	return 0;
++}
++
+ void
+ xkl_xkb_set_indicators(XklEngine * engine, const XklState * window_state)
+ {
+Index: libxklavier/xklavier_private.h
+===================================================================
+RCS file: /cvs/xklavier/libxklavier/libxklavier/xklavier_private.h,v
+retrieving revision 1.38
+retrieving revision 1.39
+diff -u -r1.38 -r1.39
+--- libxklavier/xklavier_private.h	23 Jun 2009 23:18:38 -0000	1.38
++++ libxklavier/xklavier_private.h	30 Sep 2009 09:49:57 -0000	1.39
+@@ -157,6 +157,13 @@
+ 	 gint(*process_x_event) (XklEngine * engine, XEvent * xev);
+ 
+ 	/*
++	 * Handles X errors.
++	 * return 0 if further processing is needed
++	 *        1 if error was handled
++	 */
++	 gint(*process_x_error) (XklEngine * engine, XErrorEvent * xerev);
++
++	/*
+ 	 * Flushes the cached server config info.
+ 	 * xkb: frees XkbDesc
+ 	 * xmodmap: frees internal XklConfigRec
+Index: libxklavier/xklavier_private_xkb.h
+===================================================================
+RCS file: /cvs/xklavier/libxklavier/libxklavier/xklavier_private_xkb.h,v
+retrieving revision 1.18
+retrieving revision 1.20
+diff -u -r1.18 -r1.20
+--- libxklavier/xklavier_private_xkb.h	23 Jun 2009 21:33:00 -0000	1.18
++++ libxklavier/xklavier_private_xkb.h	30 Sep 2009 09:49:57 -0000	1.20
+@@ -48,6 +48,8 @@
+ 
+ #ifdef HAVE_XINPUT
+ 	gint xi_event_type;
++
++	gint xi_error_code;
+ #endif
+ } XklXkb;
+ 
+@@ -86,7 +88,9 @@
+ 						 const XklConfigRec * data,
+ 						 const gboolean binary);
+ 
+-extern gint xkl_xkb_process_x_event(XklEngine * engine, XEvent * kev);
++extern gint xkl_xkb_process_x_event(XklEngine * engine, XEvent * xev);
++
++extern gint xkl_xkb_process_x_error(XklEngine * engine, XErrorEvent * xerev);
+ 
+ extern void xkl_xkb_free_all_info(XklEngine * engine);
+ 
+Index: libxklavier/xklavier_toplevel.c
+===================================================================
+RCS file: /cvs/xklavier/libxklavier/libxklavier/xklavier_toplevel.c,v
+retrieving revision 1.6
+retrieving revision 1.7
+diff -u -r1.6 -r1.7
+--- libxklavier/xklavier_toplevel.c	1 Mar 2008 21:43:19 -0000	1.6
++++ libxklavier/xklavier_toplevel.c	12 Oct 2009 20:28:55 -0000	1.7
+@@ -114,6 +114,22 @@
+ 	    g_signal_lookup("new-toplevel-window", xkl_engine_get_type());
+ 	g_signal_emitv(params, signal_id, 0, &rv);
+ 	default_group_to_use = g_value_get_int(&rv);
++        
++	if (default_group_to_use == -1) {
++		Window transient_for = 0;
++		if (XGetTransientForHint(xkl_engine_get_display(engine), toplevel_win, &transient_for)) {
++			if (transient_for) {
++				XklState trans_state;
++				gboolean have_state =
++					xkl_engine_get_toplevel_window_state(engine,
++							 transient_for,
++							 &trans_state);
++				if (have_state) {
++					default_group_to_use = trans_state.group;
++				}
++			}
++		}
++	}
+ 
+ 	if (default_group_to_use == -1)
+ 		default_group_to_use =
+Index: libxklavier/xklavier_xkb.c
+===================================================================
+RCS file: /cvs/xklavier/libxklavier/libxklavier/xklavier_xkb.c,v
+retrieving revision 1.33
+retrieving revision 1.37
+diff -u -r1.33 -r1.37
+--- libxklavier/xklavier_xkb.c	24 Apr 2009 22:10:19 -0000	1.33
++++ libxklavier/xklavier_xkb.c	30 Sep 2009 09:49:57 -0000	1.37
+@@ -96,7 +96,7 @@
+ 			      XkbNamesNotify, XKB_NAMES_EVT_DTL_MASK,
+ 			      XKB_NAMES_EVT_DTL_MASK);
+ #ifdef HAVE_XINPUT
+-	if (xkl_engine_priv(engine, features) | XKLF_DEVICE_DISCOVERY) {
++	if (xkl_engine_priv(engine, features) & XKLF_DEVICE_DISCOVERY) {
+ 		DevicePresence(display, xitype, xiclass);
+ 		XSelectExtensionEvent(display,
+ 				      xkl_engine_priv(engine, root_window),
+@@ -353,8 +353,8 @@
+ 				 &current_state_out->indicators))
+ 		current_state_out->indicators &=
+ 		    xkl_engine_backend(engine, XklXkb,
+-				       cached_desc)->
+-		    indicators->phys_indicators;
++				       cached_desc)->indicators->
++		    phys_indicators;
+ 	else
+ 		current_state_out->indicators = 0;
+ }
+@@ -402,8 +402,8 @@
+ 						     xkl_engine_backend
+ 						     (engine, XklXkb,
+ 						      device_id),
+-						     cached->
+-						     names->indicators
++						     cached->names->
++						     indicators
+ 						     [indicator_num], set,
+ 						     False, NULL);
+ 			else {
+@@ -541,7 +541,7 @@
+ #ifdef LIBXKBFILE_PRESENT
+ 	gint opcode;
+ 	gboolean xkl_xkb_ext_present;
+-	int xi_opc, xi_event_type, xi_error_code;
++	int xi_opc;
+ 
+ 	xkl_engine_priv(engine, backend_id) = "XKB";
+ 	xkl_engine_priv(engine, features) = XKLF_CAN_TOGGLE_INDICATORS |
+@@ -564,6 +564,7 @@
+ 	xkl_engine_priv(engine, get_num_groups) = xkl_xkb_get_num_groups;
+ 	xkl_engine_priv(engine, lock_group) = xkl_xkb_lock_group;
+ 	xkl_engine_priv(engine, process_x_event) = xkl_xkb_process_x_event;
++	xkl_engine_priv(engine, process_x_error) = xkl_xkb_process_x_error;
+ 	xkl_engine_priv(engine, free_all_info) = xkl_xkb_free_all_info;
+ 	xkl_engine_priv(engine, if_cached_info_equals_actual) =
+ 	    xkl_xkb_if_cached_info_equals_actual;
+@@ -615,14 +616,24 @@
+ 		xkl_engine_priv(engine, features) |=
+ 		    XKLF_MULTIPLE_LAYOUTS_SUPPORTED;
+ 
++#if HAVE_XINPUT
+ 	if (XQueryExtension
+ 	    (display, "XInputExtension", &xi_opc,
+-	     &xi_event_type, &xi_error_code)) {
++	     &xkl_engine_backend(engine, XklXkb, xi_event_type),
++	     &xkl_engine_backend(engine, XklXkb, xi_error_code))) {
+ 		xkl_debug(150, "XInputExtension found (%d, %d, %d)\n",
+-			  xi_opc, xi_event_type, xi_error_code);
++			  xi_opc,
++			  xkl_engine_backend(engine, XklXkb,
++					     xi_event_type),
++			  xkl_engine_backend(engine, XklXkb,
++					     xi_error_code));
+ 		xkl_engine_priv(engine, features) |= XKLF_DEVICE_DISCOVERY;
+-	} else
++	} else {
+ 		xkl_debug(0, "XInputExtension not found\n");
++		xkl_engine_backend(engine, XklXkb, xi_event_type) = -1;
++		xkl_engine_backend(engine, XklXkb, xi_error_code) = -1;
++	}
++#endif
+ 	return 0;
+ #else
+ 	xkl_debug(160,
+Index: libxklavier/xklavier_xmm.c
+===================================================================
+RCS file: /cvs/xklavier/libxklavier/libxklavier/xklavier_xmm.c,v
+retrieving revision 1.14
+retrieving revision 1.15
+diff -u -r1.14 -r1.15
+--- libxklavier/xklavier_xmm.c	27 Apr 2008 14:59:55 -0000	1.14
++++ libxklavier/xklavier_xmm.c	30 Sep 2009 09:49:57 -0000	1.15
+@@ -327,6 +327,7 @@
+ 	xkl_engine_priv(engine, lock_group) = xkl_xmm_lock_group;
+ 
+ 	xkl_engine_priv(engine, process_x_event) = xkl_xmm_process_x_event;
++	xkl_engine_priv(engine, process_x_error) = NULL;
+ 	xkl_engine_priv(engine, free_all_info) = xkl_xmm_free_all_info;
+ 	xkl_engine_priv(engine, if_cached_info_equals_actual) =
+ 	    xkl_xmm_if_cached_info_equals_actual;
